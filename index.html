@@ -94,7 +94,7 @@
     accent-color:var(--accent);
     color:var(--text);
     font-family:'Inter',sans-serif;
-    min-height:100vh;
+    min-height:100dvh;
     -webkit-font-smoothing:antialiased;
   }
   h1,h2,h3,.display{font-family:'Space Grotesk',sans-serif;}
@@ -102,7 +102,7 @@
   button{font-family:inherit;cursor:pointer;}
   .cut-lg{border-radius:12px;}
   .cut-sm{border-radius:10px;}
-  .app{max-width:520px;margin:0 auto;min-height:100vh;padding:30px 18px 60px;display:flex;flex-direction:column;}
+  .app{max-width:520px;margin:0 auto;min-height:100dvh;padding:30px 18px calc(60px + env(safe-area-inset-bottom));display:flex;flex-direction:column;}
 
   /* top bar */
   .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
@@ -192,6 +192,23 @@
   .stepper-btn{width:38px;height:38px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);font-size:18px;font-weight:700;transition:transform .12s ease, background .12s ease;}
   .stepper-btn:active{background:var(--accent);color:var(--on-accent);transform:scale(.9);}
   .team-name-input{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:15px;font-weight:700;font-family:'Space Grotesk';padding:11px 13px;transition:border-color .12s ease, box-shadow .12s ease;}
+  .team-matchup-select{width:100%;appearance:auto;background:#f8fafc;border:1px solid var(--line);border-radius:10px;color:#111827;font:700 15px 'Space Grotesk';padding:11px 13px;}
+  .team-matchup-select option{background:#f8fafc;color:#111827;}
+  .team-matchup-select:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);}
+  .matchup-choice{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:10px;margin:18px 0;}
+  .matchup-choice .vs-mark{padding-bottom:12px;}
+  button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--banana-cream);outline-offset:3px;}
+  .tournament-shell{background:rgba(15,12,31,.28);border:1px solid rgba(255,255,255,.2);border-radius:22px;padding:18px;box-shadow:0 16px 32px rgba(0,0,0,.2);}
+  .tournament-kicker{color:var(--banana-cream);font:700 11px 'JetBrains Mono';text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;}
+  .tournament-progress{height:8px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden;margin:12px 0 18px;}
+  .tournament-progress span{display:block;height:100%;background:var(--banana-cream);border-radius:inherit;}
+  .tournament-vs{font:800 18px 'Space Grotesk';color:var(--banana-cream);padding-bottom:10px;}
+  .tournament-standings{margin-top:16px;}
+  .tournament-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid rgba(255,255,255,.12);font-size:13px;}
+  .tournament-row:first-of-type{border-top:0;}
+  .danger-btn{border-color:rgba(255,175,173,.62);color:#ffd6d5;}
+  .danger-btn:hover{background:rgba(195,66,63,.2);}
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;}}
   .team-name-input:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);}
 
   /* dancer badge (signature element) */
@@ -311,7 +328,7 @@
   /* ---- LAPTOP / WIDE LAYOUT ---- */
   .score-pair{display:flex;flex-direction:column;}
   @media (min-width:760px){
-    .app{max-width:780px;padding:36px 28px 70px;}
+    .app{max-width:780px;padding:36px 28px calc(70px + env(safe-area-inset-bottom));}
     .score-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
     .dancer-review-grid{grid-template-columns:repeat(3,1fr);}
     .format-card{padding:18px 22px;}
@@ -345,6 +362,7 @@
     #print-report table{width:100%;border-collapse:collapse;font-size:13px;}
     #print-report th,#print-report td{border-bottom:1px solid #ddd;padding:8px 6px;text-align:left;}
     #print-report .pr-badge{display:inline-block;width:22px;height:22px;text-align:center;line-height:22px;font-size:11px;font-weight:700;margin-right:6px;color:#211A1E;border-radius:4px;}
+
   }
 </style>
 </head>
@@ -536,6 +554,8 @@ function serializeProgress(){
     dancers: state.dancers,
     teamNames: state.teamNames,
     teamCount: state.teamCount,
+    teamMatch: state.teamMatch,
+    tournament: state.tournament,
     perTeam: state.perTeam,
     dancerCount: state.dancerCount,
     scores: state.scores,
@@ -584,12 +604,29 @@ async function checkForUnfinishedBattle(){
   home.appendChild(banner);
   banner.querySelector('.resume-yes').onclick = ()=>{ banner.remove(); resumeBattle(saved); };
   banner.querySelector('.resume-no').onclick = ()=>{ banner.remove(); clearProgress(); };
+function boundedInt(value,min,max,fallback){
+  const n=Number(value);
+  return Number.isInteger(n) && n>=min && n<=max ? n : fallback;
+}
 }
 function resumeBattle(saved){
-  state = Object.assign(freshState(), saved);
+  if(!saved || typeof saved!=='object') return;
+  // Progress is user-controlled local data, so bound its sizes before it reaches the UI.
+  const safeSaved=Object.assign({}, saved, {
+    teamCount:boundedInt(saved.teamCount,2,6,2),
+    perTeam:boundedInt(saved.perTeam,1,8,3),
+    dancerCount:boundedInt(saved.dancerCount,2,20,2),
+    teamNames:Array.isArray(saved.teamNames) ? saved.teamNames.slice(0,6).map(n=>String(n).slice(0,60)) : []
+  });
+  state = Object.assign(freshState(), safeSaved);
   showScreen('judge');
   if(state.format==='1v1') renderJudge1v1();
-  else if(state.format==='team') renderJudgeTeam();
+  else if(state.format==='team'){
+    // Older saved battles predate team-pair selection; keep them resumable.
+    state.teamMatch = state.teamMatch || {a:0, b:Math.min(1, state.teamCount-1)};
+    state.tournament = normalizeTournament(state.tournament);
+    state.teamOrder.length ? renderJudgeTeam() : renderTeamMatchup();
+  }
   else if(state.format==='smoke') renderJudgeSmoke();
 }
 
@@ -598,11 +635,13 @@ function freshState(){
     format: null,          // '1v1' | 'team' | 'smoke'
     dancerCount: 2,
     teamCount: 2,
-    teamNames: ['Team A','Team B'],
+    teamNames: ['Team 1','Team 2'],
     perTeam: 3,
     dancers: [],           // {id, number, color, tag, teamIndex}
     scores: {},            // dancerId -> {c:[..], total, scoredAt}
     teamOrder: [],          // ordered dancer ids for team mode (index-based, so we can navigate back)
+    teamMatch: {a:0, b:1},  // the two teams selected for the current team battle
+    tournament: null,       // persists a round-robin Team Battle between matchups
     teamIndex: 0,
     match: null,            // {aId, bId} current matchup (1v1)
     smoke: null,            // {queue:[], king, eliminated:[]}
@@ -614,7 +653,7 @@ function freshState(){
 }
 state = freshState();
 
-function defaultTeamName(i){ return 'Team '+String.fromCharCode(65+i); }
+function defaultTeamName(i){ return 'Team '+(i+1); }
 function teamName(i){ return (state.teamNames[i] && state.teamNames[i].trim()) || defaultTeamName(i); }
 function syncTeamNames(){
   while(state.teamNames.length < state.teamCount) state.teamNames.push(defaultTeamName(state.teamNames.length));
@@ -648,21 +687,36 @@ function badgeHTML(d, size){
   </div>`;
 }
 
+  const trigger = document.activeElement;
 function appConfirm(message, onYes, yesLabel){
   const ov = document.createElement('div');
   ov.className = 'confirm-overlay';
   ov.innerHTML = `
-    <div class="confirm-box">
-      <div class="confirm-msg">${esc(message)}</div>
+    <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="confirm-msg">
+      <div id="confirm-msg" class="confirm-msg">${esc(message)}</div>
       <div class="confirm-actions">
         <button class="ghost-btn c-no">Cancel</button>
         <button class="primary-btn c-yes">${esc(yesLabel||'Yes')}</button>
       </div>
     </div>`;
   document.body.appendChild(ov);
-  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
-  ov.querySelector('.c-no').onclick = ()=> ov.remove();
-  ov.querySelector('.c-yes').onclick = ()=>{ ov.remove(); onYes(); };
+  const cancel = ov.querySelector('.c-no');
+  const confirm = ov.querySelector('.c-yes');
+  const close = ()=>{
+    ov.remove();
+    if(trigger && typeof trigger.focus==='function') trigger.focus();
+  };
+  ov.addEventListener('click', e=>{ if(e.target===ov) close(); });
+  ov.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ e.preventDefault(); close(); }
+    if(e.key==='Tab'){
+      e.preventDefault();
+      (document.activeElement===cancel ? confirm : cancel).focus();
+    }
+  });
+  cancel.onclick = close;
+  confirm.onclick = ()=>{ close(); onYes(); };
+  cancel.focus();
 }
 
 function esc(s){
@@ -682,6 +736,14 @@ function judgingInProgress(){
   return document.getElementById('screen-judge').classList.contains('active');
 }
 function goHome(){
+    if(state.format==='team' && state.tournament){
+      appConfirm('Leave this tournament? It will be saved so you can resume it later.', ()=>{
+        saveProgress();
+        state = freshState();
+        showScreen('home');
+      }, 'Leave Tournament');
+      return;
+    }
   if(judgingInProgress()){
     appConfirm('Leave this battle? All scores from this battle will be lost.', ()=>{
       clearProgress();
@@ -708,7 +770,7 @@ function renderSetup(){
         </button>
         <button class="format-card f-team" onclick="pickFormat('team')">
           <div class="format-icon"><svg viewBox="0 0 24 24" width="24" height="24"><g opacity=".65"><circle cx="16.5" cy="7.5" r="3.1" fill="currentColor"/><path d="M11.6 20c0-2.9 2.2-4.9 4.9-4.9s4.9 2 4.9 4.9v.6h-9.8z" fill="currentColor"/></g><circle cx="8.5" cy="8" r="3.6" fill="currentColor"/><path d="M2.5 20.6c0-3.3 2.7-5.6 6-5.6s6 2.3 6 5.6v.4h-12z" fill="currentColor"/></svg></div>
-          <div><div class="format-name">Team Battle</div><p class="format-desc">Score dancers individually. Team totals are automatic.</p></div>
+          <div><div class="format-name">Team Battle</div><p class="format-desc">Choose the two teams battling, then score dancers individually.</p></div>
         </button>
         <button class="format-card f-smoke" onclick="pickFormat('smoke')">
           <div class="format-icon"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8c0-5.39-2.59-10.2-6.5-13.33zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="currentColor"/></svg></div>
@@ -728,7 +790,7 @@ function renderSetup(){
     let nameInputs = '';
     for(let t=0;t<state.teamCount;t++){
       nameInputs += `<div class="field-block">
-        <div class="field-label">Team ${String.fromCharCode(65+t)} name</div>
+        <div class="field-label">Team ${t+1} name</div>
         <input class="team-name-input" value="${esc(state.teamNames[t]||'')}" placeholder="${defaultTeamName(t)}" oninput="setTeamName(${t}, this.value)">
       </div>`;
     }
@@ -909,9 +971,9 @@ function beginJudging(){
     state.match = {aId: state.dancers[0].id, bId: state.dancers[1].id};
     renderJudge1v1();
   } else if(state.format==='team'){
-    state.teamOrder = interleaveTeams();
-    state.teamIndex = 0;
-    renderJudgeTeam();
+    state.teamMatch = state.teamMatch || {a:0, b:1};
+    state.tournament = createTournament();
+    renderTeamMatchup();
   } else if(state.format==='smoke'){
     state.smoke = {
       king: state.dancers[0].id,
@@ -929,10 +991,12 @@ function beginJudging(){
   showScreen('judge');
 }
 
-function interleaveTeams(){
+function interleaveTeams(teamIndexes){
   const byTeam = {};
-  state.dancers.forEach(d=>{ (byTeam[d.teamIndex] = byTeam[d.teamIndex]||[]).push(d.id); });
-  const teams = Object.values(byTeam);
+  state.dancers
+    .filter(d=>!teamIndexes || teamIndexes.includes(d.teamIndex))
+    .forEach(d=>{ (byTeam[d.teamIndex] = byTeam[d.teamIndex]||[]).push(d.id); });
+  const teams = (teamIndexes || Object.keys(byTeam)).map(i=>byTeam[i]).filter(Boolean);
   const out=[]; const maxLen = Math.max(...teams.map(t=>t.length));
   for(let i=0;i<maxLen;i++){ teams.forEach(t=>{ if(t[i]) out.push(t[i]); }); }
   return out;
@@ -980,25 +1044,150 @@ function finish1v1(){
   showScreen('results');
 }
 
+function pairKey(a,b){ return [a,b].sort((x,y)=>x-y).join(':'); }
+function makeTeamStats(){
+  const stats=Object.create(null);
+  for(let i=0;i<state.teamCount;i++) stats[i]={matchCount:0,totalAverage:0,cumulativeAverage:0,wins:0,draws:0};
+  return stats;
+}
+function createTournament(){
+  const pairs=[];
+  for(let a=0;a<state.teamCount;a++) for(let b=a+1;b<state.teamCount;b++) pairs.push(pairKey(a,b));
+  return {pairs:pairs, completedPairs:[], matches:[], teamStats:makeTeamStats()};
+}
+function validTeamIndex(i){ return Number.isInteger(i) && i>=0 && i<state.teamCount; }
+function validAverage(value){ const n=Number(value); return Number.isFinite(n) && n>=4 && n<=40 ? n : null; }
+function updateTournamentStats(a,b,averages,tournament){
+  const sa=validAverage(averages[a]), sb=validAverage(averages[b]);
+  if(sa===null || sb===null) return false;
+  const stats=(tournament || state.tournament).teamStats;
+  const aStat=stats[a], bStat=stats[b];
+  if(!aStat || !bStat) return false;
+  [ [aStat,sa], [bStat,sb] ].forEach(([stat,score])=>{
+    stat.matchCount++;
+    stat.totalAverage+=score;
+    stat.cumulativeAverage=stat.totalAverage/stat.matchCount;
+  });
+  if(sa===sb){ aStat.draws++; bStat.draws++; }
+  else if(sa>sb) aStat.wins++;
+  else bStat.wins++;
+  return true;
+}
+function normalizeTournament(savedTournament){
+  const clean=createTournament();
+  if(!savedTournament || !Array.isArray(savedTournament.matches)) return clean;
+  const seen=new Set();
+  savedTournament.matches.forEach(m=>{
+    if(!m || !validTeamIndex(m.a) || !validTeamIndex(m.b) || m.a===m.b) return;
+    const key=pairKey(m.a,m.b);
+    if(seen.has(key) || !clean.pairs.includes(key)) return;
+    const averages=m.averages || {};
+    if(!updateTournamentStats(m.a, m.b, averages, clean)) return;
+    clean.matches.push({key:key,a:m.a,b:m.b,averages:{[m.a]:Number(averages[m.a]).toFixed(1),[m.b]:Number(averages[m.b]).toFixed(1)},scoredCount:m.scoredCount||{},completedAt:typeof m.completedAt==='string'?m.completedAt:'',early:!!m.early});
+    clean.completedPairs.push(key); seen.add(key);
+  });
+  return clean;
+}
+function tournamentProgress(){
+  const t = state.tournament || createTournament();
+  return {done:t.completedPairs.length, total:t.pairs.length};
+}
+function tournamentIsComplete(){
+  const p=tournamentProgress();
+  return p.done>=p.total;
+}
+function tournamentStandingsHTML(){
+  const stats=state.tournament.teamStats;
+  const rows=Array.from({length:state.teamCount},(_,i)=>({team:i,stat:stats[i]}))
+    .sort((x,y)=>y.stat.wins-x.stat.wins || y.stat.cumulativeAverage-x.stat.cumulativeAverage)
+    .map(({team,stat})=>`<div class="tournament-row"><span>${esc(teamName(team))}</span><span class="mono">${stat.wins}W · ${stat.cumulativeAverage.toFixed(1)} avg</span></div>`).join('');
+  return `<section class="field-block tournament-standings" aria-labelledby="standings-heading"><div id="standings-heading" class="field-label">Tournament standings</div>${rows}</section>`;
+}
+function chooseNextTeamMatch(){
+  const key=state.tournament.pairs.find(p=>!state.tournament.completedPairs.includes(p));
+  if(key){ const [a,b]=key.split(':').map(Number); state.teamMatch={a:a,b:b}; }
+}
+function teamMatchOptions(selected){
+  return Array.from({length:state.teamCount}, (_,i)=>i)
+    .map(i=>`<option value="${i}" ${i===selected?'selected':''}>${esc(teamName(i))}</option>`)
+    .join('');
+}
+function setTeamMatch(side, value){
+  const picked = parseInt(value, 10);
+  if(!validTeamIndex(picked)) return;
+  const other = side==='a' ? state.teamMatch.b : state.teamMatch.a;
+  state.teamMatch[side] = picked===other ? (picked+1)%state.teamCount : picked;
+  state.matchupError = '';
+  renderTeamMatchup();
+}
+function renderTeamMatchup(){
+  const match = state.teamMatch || {a:0,b:1};
+  state.teamMatch = match;
+  const progress = tournamentProgress();
+  const progressPercent = progress.total ? Math.round((progress.done/progress.total)*100) : 0;
+  document.getElementById('judge-body').innerHTML = `
+    <div class="tournament-shell">
+      <p class="tournament-kicker">Round robin · ${progress.done} / ${progress.total} complete</p>
+      <h2 class="step-title">Set the next matchup</h2>
+      <div class="tournament-progress" role="progressbar" aria-label="Tournament progress" aria-valuemin="0" aria-valuemax="${progress.total}" aria-valuenow="${progress.done}"><span style="width:${progressPercent}%"></span></div>
+      <p id="matchup-help" style="color:var(--text-dim);font-size:13px;margin:-4px 0 2px;">Every team must face every other team once.</p>
+      <div class="matchup-choice">
+        <div><label class="field-label" for="team-a">First team</label><select id="team-a" class="team-matchup-select" aria-describedby="matchup-help" onchange="setTeamMatch('a', this.value)">${teamMatchOptions(match.a)}</select></div>
+        <div class="vs-mark">VS</div>
+        <div><label class="field-label" for="team-b">Second team</label><select id="team-b" class="team-matchup-select" aria-describedby="matchup-help" onchange="setTeamMatch('b', this.value)">${teamMatchOptions(match.b)}</select></div>
+      </div>
+      ${state.matchupError ? `<p id="matchup-error" role="alert" style="color:#ffd6d5;text-align:center;font-size:13px;margin:0 0 10px;">${esc(state.matchupError)}</p>` : ''}
+      <button class="primary-btn" aria-describedby="matchup-help" onclick="startTeamMatchup()">Start ${esc(teamName(match.a))} vs ${esc(teamName(match.b))}</button>
+    </div>
+    ${tournamentStandingsHTML()}
+    <button class="ghost-btn danger-btn" onclick="endTeamTournament()">End Team Battle Tournament</button>
+  `;
+}
+function startTeamMatchup(){
+  const {a,b} = state.teamMatch;
+  if(!validTeamIndex(a) || !validTeamIndex(b) || a===b){
+    state.teamMatch={a:0,b:1};
+    state.matchupError='Choose two different teams.';
+    renderTeamMatchup();
+    return;
+  }
+  if(state.tournament.completedPairs.includes(pairKey(a,b))){
+    state.matchupError = 'That matchup is already complete. Choose two teams that have not battled yet.';
+    renderTeamMatchup();
+    return;
+  }
+  state.scores = {};
+  state.teamOrder = interleaveTeams([a,b]);
+  state.teamIndex = 0;
+  scheduleSaveProgress();
+  renderJudgeTeam();
+}
+function endTeamTournament(){
+  appConfirm('End this Team Battle Tournament? Its unfinished matchups and scores will be discarded.', ()=>{
+    clearProgress();
+    state = freshState();
+    showScreen('home');
+  }, 'End Tournament');
+}
 /* ---------- TEAM ---------- */
 function renderJudgeTeam(){
   const id = state.teamOrder[state.teamIndex];
   const d = dById(id);
   const isLast = state.teamIndex === state.teamOrder.length-1;
   document.getElementById('judge-body').innerHTML = `
-    <div class="round-tag">SCORING ${state.teamIndex+1} / ${state.teamOrder.length}</div>
+    <div class="round-tag">${esc(teamName(state.teamMatch.a))} VS ${esc(teamName(state.teamMatch.b))} · ${state.teamIndex+1} / ${state.teamOrder.length}</div>
     <div style="display:flex;justify-content:center;margin-bottom:6px;">${badgeHTML(d,'lg')}</div>
     <div style="text-align:center;color:var(--text-dim);font-size:12.5px;margin-bottom:16px;">${esc(teamName(d.teamIndex))} ${d.tag?'· '+esc(d.tag):''}</div>
     ${scoreCardHTML(d)}
     <div class="judge-nav-row">
       <button class="ghost-btn nav-back" onclick="prevTeamDancer()" ${state.teamIndex===0?'disabled':''}>‹ Back</button>
-      <button class="primary-btn" onclick="nextTeamDancer()">${isLast ? 'Finish & See Results' : 'Next Dancer'}</button>
+      <button class="primary-btn" onclick="nextTeamDancer()">${isLast ? 'Complete Matchup' : 'Next Dancer'}</button>
     </div>
-    <button class="ghost-btn" onclick="endTeamEarly()">End Battle · Score So Far</button>
+    <button class="ghost-btn" onclick="endTeamEarly()">Finish Matchup · Score So Far</button>
   `;
 }
 function endTeamEarly(){
-  appConfirm('End the battle now? Only dancers scored so far will count toward each team.', ()=>{
+  appConfirm('Finish this matchup now? Only dancers scored so far will count toward each team.', ()=>{
     // mark the currently-shown dancer as scored (their sliders are visible), then finish
     ensureScore(state.teamOrder[state.teamIndex]).scoredAt = new Date();
     finishTeam(true);
@@ -1019,7 +1208,7 @@ function finishTeam(early){
   state.finishedAt = new Date();
   // Only dancers who were actually scored count. scoredAt is set as each dancer is
   // submitted (or when ending early on the current dancer), so it marks "was judged".
-  const scored = state.dancers.filter(d=> state.scores[d.id] && state.scores[d.id].scoredAt);
+  const scored = state.teamOrder.map(dById).filter(d=> d && state.scores[d.id] && state.scores[d.id].scoredAt);
   const teamTotals = {};
   scored.forEach(d=>{
     teamTotals[d.teamIndex] = teamTotals[d.teamIndex] || {sum:0,count:0};
@@ -1033,13 +1222,63 @@ function finishTeam(early){
     state.teamAverages[k] = (v.sum/v.count).toFixed(1);
     state.teamScoredCount[k] = v.count;
   });
-  const ranked = Object.entries(state.teamAverages).sort((x,y)=>parseFloat(y[1])-parseFloat(x[1]));
-  state.champion = (ranked.length>1 && ranked[0][1]===ranked[1][1])
-    ? {type:'tie'}
-    : (ranked.length ? {type:'text', label: teamName(parseInt(ranked[0][0]))+' wins!'} : null);
-  state.results = scored.slice().sort((a,b)=> state.scores[b.id].total - state.scores[a.id].total)
-    .map((d,i)=>({d, place:i+1, score: state.scores[d.id].total, note: teamName(d.teamIndex), time: state.scores[d.id].scoredAt, comment: state.scores[d.id].comment||''}));
-  renderResults('Team Battle Results');
+  const {a,b} = state.teamMatch;
+  if(!state.teamAverages[a] || !state.teamAverages[b]){
+    appConfirm('Score at least one dancer from each team before completing a tournament matchup.', ()=>renderJudgeTeam(), 'Back to Scoring');
+    return;
+  }
+  const key = pairKey(a,b);
+  if(!updateTournamentStats(a,b,state.teamAverages)) return;
+  state.tournament.matches.push({
+    key:key, a:a, b:b, averages:Object.assign({}, state.teamAverages),
+    scoredCount:Object.assign({}, state.teamScoredCount), completedAt:new Date().toISOString(), early:!!early
+  });
+  state.tournament.completedPairs.push(key);
+  state.teamOrder = [];
+  state.teamIndex = 0;
+  state.scores = {};
+  if(tournamentIsComplete()){
+    finishTeamTournament();
+  } else {
+    chooseNextTeamMatch();
+    scheduleSaveProgress();
+    renderTournamentMatchComplete(a,b);
+  }
+}
+function renderTournamentMatchComplete(a,b){
+  const progress=tournamentProgress();
+  const scoreA=state.teamAverages[a], scoreB=state.teamAverages[b];
+  const result = scoreA===scoreB ? 'Tie' : (parseFloat(scoreA)>parseFloat(scoreB) ? teamName(a)+' wins' : teamName(b)+' wins');
+  const progressPercent = progress.total ? Math.round((progress.done/progress.total)*100) : 0;
+  document.getElementById('judge-body').innerHTML = `
+    <div class="tournament-shell">
+      <p class="tournament-kicker">Matchup complete · ${progress.done} / ${progress.total}</p>
+      <h2 class="step-title">${esc(result)}</h2>
+      <div class="tournament-progress" role="progressbar" aria-label="Tournament progress" aria-valuemin="0" aria-valuemax="${progress.total}" aria-valuenow="${progress.done}"><span style="width:${progressPercent}%"></span></div>
+      <div class="field-block"><div class="field-label">Match scores</div>
+        <div class="tournament-row"><span>${esc(teamName(a))}</span><strong class="mono">${esc(scoreA||'—')}</strong></div>
+        <div class="tournament-row"><span>${esc(teamName(b))}</span><strong class="mono">${esc(scoreB||'—')}</strong></div>
+      </div>
+      <p style="color:var(--text-dim);font-size:13px;">The tournament stays active until every pair of teams has battled.</p>
+      <button class="primary-btn" onclick="renderTeamMatchup()">Choose Next Matchup</button>
+    </div>
+    <button class="ghost-btn" onclick="goHome()">Leave Tournament</button>
+    <button class="ghost-btn danger-btn" onclick="endTeamTournament()">End Team Battle Tournament</button>
+  `;
+}
+function finishTeamTournament(){
+  state.finishedAt = new Date();
+  const standings=Array.from({length:state.teamCount}, (_,i)=>Object.assign({team:i}, state.tournament.teamStats[i]));
+  standings.forEach(s=>s.average=s.cumulativeAverage);
+  standings.sort((x,y)=>y.wins-x.wins || y.average-x.average);
+  const tie=standings.length>1 && standings[0].wins===standings[1].wins && standings[0].average===standings[1].average;
+  state.champion=tie ? {type:'tie'} : {type:'text', label:teamName(standings[0].team)+' wins the tournament!'};
+  state.teamAverages={};
+  standings.forEach(s=>state.teamAverages[s.team]=s.average.toFixed(1));
+  state.teamScoredCount={};
+  standings.forEach(s=>state.teamScoredCount[s.team]=s.matchCount);
+  state.results=standings.map((s,i)=>({teamIndex:s.team, teamName:teamName(s.team), place:tie?1:i+1, score:s.wins+' win'+(s.wins===1?'':'s'), note:s.draws+' draw'+(s.draws===1?'':'s')+' · avg '+s.average.toFixed(1), time:null, comment:''}));
+  renderResults('Team Battle Tournament Results');
   showScreen('results');
 }
 
@@ -1174,6 +1413,15 @@ function renderResults(title){
         return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:14px;"><span>${esc(teamName(parseInt(t)))} <span style="color:var(--text-dim);font-size:11.5px;">· ${n} scored</span></span><span class="mono" style="font-weight:700;">${avg}</span></div>`;
       }).join('') + `</div>`;
   }
+    if(Number.isInteger(r.teamIndex)){
+      const noteLine = [r.note, r.time ? 'at '+fmtTime(r.time) : ''].filter(Boolean).join(' · ');
+      return `<div class="result-row">
+        <div class="result-rank">${r.place}</div>
+        <div class="badge badge-sm" style="background:${safeHex(PALETTE[r.teamIndex%PALETTE.length].hex)};">T</div>
+        <div class="result-info"><div class="result-name">${esc(r.teamName)}</div><div class="result-sub">${esc(noteLine)}</div></div>
+        <div class="result-score">${esc(r.score)}</div>
+      </div>`;
+    }
   const rows = state.results.map(r=>{
     const c = r.d.color.hex;
     const noteLine = [r.note, r.time ? 'at '+fmtTime(r.time) : ''].filter(Boolean).join(' · ');
@@ -1213,9 +1461,10 @@ async function persistBattleRecord(title){
       startedAt: state.startedAt ? new Date(state.startedAt).toISOString() : null,
       finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : null,
       rows: state.results.map(r=>({
-        number: r.d.number,
-        colorHex: r.d.color.hex,
-        tag: r.d.tag || '',
+        number: r.d ? r.d.number : null,
+        teamName: r.teamName || null,
+        colorHex: r.d ? r.d.color.hex : safeHex(PALETTE[r.teamIndex%PALETTE.length].hex),
+        tag: r.d ? (r.d.tag || '') : '',
         note: r.note || '',
         score: r.score,
         place: r.place,
@@ -1294,14 +1543,14 @@ function exportReport(title){
   let rows = state.results.map(r=>`
     <tr>
       <td>${r.place}</td>
-      <td><span class="pr-badge" style="background:${safeHex(r.d.color.hex)}">${r.d.number}</span>${esc(r.d.tag)}</td>
+      <td>${r.teamName ? `<span class="pr-badge" style="background:${safeHex(PALETTE[r.teamIndex%PALETTE.length].hex)}">T</span>${esc(r.teamName)}` : `<span class="pr-badge" style="background:${safeHex(r.d.color.hex)}">${r.d.number}</span>${esc(r.d.tag)}`}</td>
       <td>${esc(r.note)}${r.comment ? ` <em>"${esc(r.comment)}"</em>` : ''}</td>
       <td>${r.time ? fmtTime(r.time) : ''}</td>
       <td style="text-align:right;font-weight:700;">${r.score}</td>
     </tr>`).join('');
   const body = `
     <table>
-      <thead><tr><th>Place</th><th>Dancer</th><th>Note</th><th>Time</th><th style="text-align:right;">Score</th></tr></thead>
+      <thead><tr><th>Place</th><th>${state.format==='team' ? 'Team' : 'Dancer'}</th><th>Note</th><th>Time</th><th style="text-align:right;">Score</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   const subline = `Format: ${state.format} · Started ${fmtDateTime(state.startedAt)} · Finished ${fmtDateTime(state.finishedAt)} · Duration ${fmtDuration(state.startedAt, state.finishedAt)}`;
@@ -1383,7 +1632,7 @@ function historyRecordCard(r, idx){
   const rowsHTML = r.rows.map(row=>`
     <div class="history-row">
       <span class="history-swatch" style="background:${safeHex(row.colorHex)}"></span>
-      <span class="history-row-name mono">#${row.number}${row.tag?(' · '+esc(row.tag)):''}</span>
+      <span class="history-row-name mono">${row.teamName ? esc(row.teamName) : '#'+row.number+(row.tag?(' · '+esc(row.tag)):'')}</span>
       <span class="history-row-note">${esc(row.note)}${row.comment ? ` — "${esc(row.comment)}"` : ''}</span>
       <span class="history-row-score mono">${row.score}</span>
     </div>`).join('');
@@ -1415,7 +1664,7 @@ function exportDayReport(){
     const rows = r.rows.map(row=>`
       <tr>
         <td>${row.place}</td>
-        <td><span class="pr-badge" style="background:${safeHex(row.colorHex)}">${row.number}</span>${esc(row.tag)}</td>
+        <td>${row.teamName ? `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">T</span>${esc(row.teamName)}` : `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${row.number}</span>${esc(row.tag)}`}</td>
         <td>${esc(row.note)}${row.comment ? ` <em>"${esc(row.comment)}"</em>` : ''}</td>
         <td>${row.time ? fmtTime(row.time) : ''}</td>
         <td style="text-align:right;font-weight:700;">${row.score}</td>
@@ -1423,7 +1672,7 @@ function exportDayReport(){
     return `
       <h2 class="pr-section-title">${formatLabel} · ${r.startedAt ? fmtTime(r.startedAt) : ''}</h2>
       <table>
-        <thead><tr><th>Place</th><th>Dancer</th><th>Note</th><th>Time</th><th style="text-align:right;">Score</th></tr></thead>
+        <thead><tr><th>Place</th><th>Team / dancer</th><th>Note</th><th>Time</th><th style="text-align:right;">Score</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   }).join('');
