@@ -192,6 +192,7 @@
   .stepper-btn{width:38px;height:38px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);font-size:18px;font-weight:700;transition:transform .12s ease, background .12s ease;}
   .stepper-btn:active{background:var(--accent);color:var(--on-accent);transform:scale(.9);}
   .team-name-input{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:15px;font-weight:700;font-family:'Space Grotesk';padding:11px 13px;transition:border-color .12s ease, box-shadow .12s ease;}
+  .team-name-input:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);}
   .team-matchup-select{width:100%;appearance:auto;background:#f8fafc;border:1px solid var(--line);border-radius:10px;color:#111827;font:700 15px 'Space Grotesk';padding:11px 13px;}
   .team-matchup-select option{background:#f8fafc;color:#111827;}
   .team-matchup-select:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);}
@@ -209,13 +210,14 @@
   .danger-btn{border-color:rgba(255,175,173,.62);color:#ffd6d5;}
   .danger-btn:hover{background:rgba(195,66,63,.2);}
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;}}
-  .team-name-input:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);}
 
   /* dancer badge (signature element) */
   .badge{display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono';font-weight:700;position:relative;flex-shrink:0;color:var(--on-accent);}
   .badge .num{font-size:1em;}
   .badge-sm{width:52px;height:52px;font-size:17px;border-radius:13px;box-shadow:0 4px 10px rgba(0,0,0,.28);}
   .badge-lg{width:104px;height:104px;font-size:36px;border-radius:24px;box-shadow:0 8px 20px rgba(0,0,0,.32);}
+  .badge-team{width:28px;height:28px;font-size:11px;border-radius:8px;box-shadow:0 3px 8px rgba(0,0,0,.24);}
+  .team-list-name{display:flex;align-items:center;gap:8px;min-width:0;}
 
   .dancer-review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
   .dancer-review-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 12px;display:flex;flex-direction:column;align-items:center;gap:9px;box-shadow:0 4px 12px rgba(0,0,0,.2);}
@@ -260,6 +262,11 @@
 
   .score-card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:17px;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,.22);}
   .score-card-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+  .dancer-head-main{min-width:0;flex:1;}
+  .dancer-tools{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+  .judge-tag-input{width:92px;padding:7px 8px;font-size:11px;text-align:left;}
+  .dancer-quick-tags{display:grid;grid-template-columns:repeat(6,26px);gap:4px;width:auto;}
+  .dancer-quick-tags .qtag{padding:5px 0;font-size:13px;}
   .score-card-name{font-weight:700;font-size:14.5px;}
   .role-pill{background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:3px;margin-left:4px;vertical-align:middle;display:inline-block;}
   .role-pill.king{background:var(--tomato-jam);color:#fff;}
@@ -362,8 +369,13 @@
     #print-report table{width:100%;border-collapse:collapse;font-size:13px;}
     #print-report th,#print-report td{border-bottom:1px solid #ddd;padding:8px 6px;text-align:left;}
     #print-report .pr-badge{display:inline-block;width:22px;height:22px;text-align:center;line-height:22px;font-size:11px;font-weight:700;margin-right:6px;color:#211A1E;border-radius:4px;}
-
   }
+  @media (max-width:430px){
+    .score-card-head{align-items:flex-start;flex-wrap:wrap;}
+    .dancer-tools{width:100%;padding-left:62px;}
+    .judge-tag-input{flex:1;width:auto;}
+  }
+
 </style>
 </head>
 <body class="on-home">
@@ -554,9 +566,9 @@ function serializeProgress(){
     dancers: state.dancers,
     teamNames: state.teamNames,
     teamCount: state.teamCount,
+    perTeam: state.perTeam,
     teamMatch: state.teamMatch,
     tournament: state.tournament,
-    perTeam: state.perTeam,
     dancerCount: state.dancerCount,
     scores: state.scores,
     teamOrder: state.teamOrder,
@@ -604,10 +616,10 @@ async function checkForUnfinishedBattle(){
   home.appendChild(banner);
   banner.querySelector('.resume-yes').onclick = ()=>{ banner.remove(); resumeBattle(saved); };
   banner.querySelector('.resume-no').onclick = ()=>{ banner.remove(); clearProgress(); };
+}
 function boundedInt(value,min,max,fallback){
   const n=Number(value);
   return Number.isInteger(n) && n>=min && n<=max ? n : fallback;
-}
 }
 function resumeBattle(saved){
   if(!saved || typeof saved!=='object') return;
@@ -624,6 +636,7 @@ function resumeBattle(saved){
   else if(state.format==='team'){
     // Older saved battles predate team-pair selection; keep them resumable.
     state.teamMatch = state.teamMatch || {a:0, b:Math.min(1, state.teamCount-1)};
+    applyTeamJudgeColors();
     state.tournament = normalizeTournament(state.tournament);
     state.teamOrder.length ? renderJudgeTeam() : renderTeamMatchup();
   }
@@ -640,9 +653,9 @@ function freshState(){
     dancers: [],           // {id, number, color, tag, teamIndex}
     scores: {},            // dancerId -> {c:[..], total, scoredAt}
     teamOrder: [],          // ordered dancer ids for team mode (index-based, so we can navigate back)
+    teamIndex: 0,
     teamMatch: {a:0, b:1},  // the two teams selected for the current team battle
     tournament: null,       // persists a round-robin Team Battle between matchups
-    teamIndex: 0,
     match: null,            // {aId, bId} current matchup (1v1)
     smoke: null,            // {queue:[], king, eliminated:[]}
     results: [],            // final ordered result rows for display/export
@@ -687,8 +700,8 @@ function badgeHTML(d, size){
   </div>`;
 }
 
-  const trigger = document.activeElement;
 function appConfirm(message, onYes, yesLabel){
+  const trigger = document.activeElement;
   const ov = document.createElement('div');
   ov.className = 'confirm-overlay';
   ov.innerHTML = `
@@ -718,6 +731,22 @@ function appConfirm(message, onYes, yesLabel){
   confirm.onclick = ()=>{ close(); onYes(); };
   cancel.focus();
 }
+function teamBadgeLabel(teamIndex){
+  const name=teamName(teamIndex).trim();
+  const defaultName=defaultTeamName(teamIndex);
+  if(name.toLowerCase()===defaultName.toLowerCase()) return String(teamIndex+1);
+  const words=name.match(/[\p{L}\p{N}]+/gu) || [];
+  const initials=words.slice(0,2).map(word=>word[0]).join('').toUpperCase();
+  return initials || String(teamIndex+1);
+}
+function teamBadgeHTML(teamIndex, size){
+  const color=safeHex(PALETTE[teamIndex%PALETTE.length].hex);
+  const sizeClass=size==='sm' ? 'badge-sm' : 'badge-team';
+  return `<div class="badge ${sizeClass}" aria-label="${esc(teamName(teamIndex))}" style="background:${color};filter:drop-shadow(0 3px 7px ${color}66);"><span class="num">${esc(teamBadgeLabel(teamIndex))}</span></div>`;
+}
+function applyTeamJudgeColors(){
+  state.dancers.forEach((d,i)=>{ d.color=colorFor(i+1); });
+}
 
 function esc(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -736,6 +765,7 @@ function judgingInProgress(){
   return document.getElementById('screen-judge').classList.contains('active');
 }
 function goHome(){
+  if(judgingInProgress()){
     if(state.format==='team' && state.tournament){
       appConfirm('Leave this tournament? It will be saved so you can resume it later.', ()=>{
         saveProgress();
@@ -744,7 +774,6 @@ function goHome(){
       }, 'Leave Tournament');
       return;
     }
-  if(judgingInProgress()){
     appConfirm('Leave this battle? All scores from this battle will be lost.', ()=>{
       clearProgress();
       state = freshState();
@@ -780,7 +809,8 @@ function renderSetup(){
     return;
   }
 
-  // Step 2: sizing + optional tags
+  // Step 2: sizing. Team dancers are customized during scoring, where the
+  // judge can see their team and current matchup in the same place.
   let sizingHTML = '';
   if(state.format==='1v1'){
     state.dancerCount = 2;
@@ -827,15 +857,7 @@ function renderSetup(){
   generateRoster();
 
   let rosterHTML = '';
-  if(state.format==='team'){
-    for(let t=0;t<state.teamCount;t++){
-      rosterHTML += `<div class="team-label">${esc(teamName(t))}</div><div class="dancer-review-grid">`;
-      state.dancers.filter(d=>d.teamIndex===t).forEach(d=>{
-        rosterHTML += dancerCard(d);
-      });
-      rosterHTML += `</div>`;
-    }
-  } else {
+  if(state.format!=='team'){
     rosterHTML += `<div class="dancer-review-grid">`;
     state.dancers.forEach(d=> rosterHTML += dancerCard(d));
     rosterHTML += `</div>`;
@@ -843,7 +865,7 @@ function renderSetup(){
 
   body.innerHTML = `
     <div class="step-label">Step 2 of 2</div>
-    <h2 class="step-title">Set up dancers</h2>
+    <h2 class="step-title">${state.format==='team' ? 'Set up Team Battle' : 'Set up dancers'}</h2>
     ${sizingHTML}
     ${rosterHTML}
     <button class="primary-btn" onclick="beginJudging()">Begin Judging</button>
@@ -864,10 +886,18 @@ function dancerCard(d){
 
 function quickTag(id, emoji){
   const d = state.dancers.find(x=>x.id===id);
+  if(!d) return;
   if(!d.tag.includes(emoji)) d.tag = (d.tag ? d.tag+' ' : '') + emoji;
-  document.getElementById('tag-'+id).value = d.tag;
+  const input = document.getElementById('tag-'+id);
+  if(input) input.value = d.tag;
+  scheduleSaveProgress();
+  if(state.format==='team' && judgingInProgress()) renderJudgeTeam();
 }
-function setTag(id, val){ state.dancers.find(x=>x.id===id).tag = val; }
+function setTag(id, val){
+  const d=state.dancers.find(x=>x.id===id);
+  if(d) d.tag = String(val).slice(0,120);
+  scheduleSaveProgress();
+}
 
 function pickFormat(fmt){
   state.format = fmt;
@@ -887,7 +917,8 @@ function generateRoster(){
     state.dancers.forEach(d=>preserved[d.id]=d.tag);
     state.dancers = makeDancers(total, teamOf);
     state.dancers.forEach(d=>{
-      d.color = colorFor(d.teamIndex+1); // side-based colour: team A blue, team B yellow, alternating beyond that
+      // The judge sees a consistent blue/yellow rhythm, independent of team membership.
+      d.color = colorFor(d.number);
       if(preserved[d.id]!==undefined) d.tag = preserved[d.id];
     });
   } else {
@@ -902,6 +933,14 @@ function generateRoster(){
 function ensureScore(id){
   if(!state.scores[id]) state.scores[id] = {c: CRITERIA.map(()=>5), total: 20, comment: ''};
   return state.scores[id];
+}
+function teamDancerToolsHTML(d){
+  return `<div class="dancer-tools" aria-label="Customize Dancer #${d.number}">
+    <input class="tag-input judge-tag-input" id="tag-${d.id}" placeholder="optional note" value="${esc(d.tag)}" oninput="setTag('${d.id}', this.value)">
+    <div class="quick-tags dancer-quick-tags">
+      ${QUICK_TAGS.map(t=>`<button type="button" class="qtag" aria-label="Add ${esc(t)}" onclick="quickTag('${d.id}','${t.split(' ')[0]}')">${t.split(' ')[0]}</button>`).join('')}
+    </div>
+  </div>`;
 }
 function scoreCardHTML(d, roleLabel){
   const s = ensureScore(d.id);
@@ -920,8 +959,9 @@ function scoreCardHTML(d, roleLabel){
     <div class="score-card">
       <div class="score-card-head">
         ${badgeHTML(d,'sm')}
-        <div><div class="score-card-name">Dancer #${d.number}${roleLabel ? ` <span class="role-pill${roleLabel.includes('King')?' king':''}">${roleLabel}</span>` : ''}</div>
+        <div class="dancer-head-main"><div class="score-card-name">Dancer #${d.number}${roleLabel ? ` <span class="role-pill${roleLabel.includes('King')?' king':''}">${roleLabel}</span>` : ''}</div>
         <div class="score-card-sub">${esc(d.tag) || 'no note'}${d.teamIndex!==null&&d.teamIndex!==undefined ? ' · '+esc(teamName(d.teamIndex)):''}</div></div>
+        ${state.format==='team' ? teamDancerToolsHTML(d) : ''}
       </div>
       ${rows}
       <div class="comment-block">
@@ -971,6 +1011,7 @@ function beginJudging(){
     state.match = {aId: state.dancers[0].id, bId: state.dancers[1].id};
     renderJudge1v1();
   } else if(state.format==='team'){
+    applyTeamJudgeColors();
     state.teamMatch = state.teamMatch || {a:0, b:1};
     state.tournament = createTournament();
     renderTeamMatchup();
@@ -1044,6 +1085,7 @@ function finish1v1(){
   showScreen('results');
 }
 
+/* ---------- TEAM ---------- */
 function pairKey(a,b){ return [a,b].sort((x,y)=>x-y).join(':'); }
 function makeTeamStats(){
   const stats=Object.create(null);
@@ -1100,7 +1142,7 @@ function tournamentStandingsHTML(){
   const stats=state.tournament.teamStats;
   const rows=Array.from({length:state.teamCount},(_,i)=>({team:i,stat:stats[i]}))
     .sort((x,y)=>y.stat.wins-x.stat.wins || y.stat.cumulativeAverage-x.stat.cumulativeAverage)
-    .map(({team,stat})=>`<div class="tournament-row"><span>${esc(teamName(team))}</span><span class="mono">${stat.wins}W · ${stat.cumulativeAverage.toFixed(1)} avg</span></div>`).join('');
+    .map(({team,stat})=>`<div class="tournament-row"><span class="team-list-name">${teamBadgeHTML(team,'team')}${esc(teamName(team))}</span><span class="mono">${stat.wins}W · ${stat.cumulativeAverage.toFixed(1)} avg</span></div>`).join('');
   return `<section class="field-block tournament-standings" aria-labelledby="standings-heading"><div id="standings-heading" class="field-label">Tournament standings</div>${rows}</section>`;
 }
 function chooseNextTeamMatch(){
@@ -1163,13 +1205,22 @@ function startTeamMatchup(){
   renderJudgeTeam();
 }
 function endTeamTournament(){
-  appConfirm('End this Team Battle Tournament? Its unfinished matchups and scores will be discarded.', ()=>{
-    clearProgress();
-    state = freshState();
-    showScreen('home');
+  appConfirm('End this Team Battle Tournament? Recorded matchups will be saved to History and can be exported.', ()=>{
+    if(state.teamOrder.length){
+      const activeId=state.teamOrder[state.teamIndex];
+      if(activeId) ensureScore(activeId).scoredAt = new Date();
+      recordCurrentTeamMatch(true, true);
+    }
+    const t=state.tournament;
+    if(t && ((t.matches&&t.matches.length) || (t.incompleteMatches&&t.incompleteMatches.length))){
+      finishPartialTeamTournament();
+    } else {
+      clearProgress();
+      state = freshState();
+      showScreen('home');
+    }
   }, 'End Tournament');
 }
-/* ---------- TEAM ---------- */
 function renderJudgeTeam(){
   const id = state.teamOrder[state.teamIndex];
   const d = dById(id);
@@ -1181,17 +1232,23 @@ function renderJudgeTeam(){
     ${scoreCardHTML(d)}
     <div class="judge-nav-row">
       <button class="ghost-btn nav-back" onclick="prevTeamDancer()" ${state.teamIndex===0?'disabled':''}>‹ Back</button>
-      <button class="primary-btn" onclick="nextTeamDancer()">${isLast ? 'Complete Matchup' : 'Next Dancer'}</button>
+      <button class="primary-btn" onclick="${isLast ? 'completeTeamMatchup()' : 'nextTeamDancer()'}">${isLast ? 'Complete Matchup' : 'Next Dancer'}</button>
     </div>
-    <button class="ghost-btn" onclick="endTeamEarly()">Finish Matchup · Score So Far</button>
+    <button class="ghost-btn" onclick="endTeamEarly()">End match now?</button>
   `;
 }
 function endTeamEarly(){
-  appConfirm('Finish this matchup now? Only dancers scored so far will count toward each team.', ()=>{
+  appConfirm('End match now? Only dancers already scored will count toward each team.', ()=>{
     // mark the currently-shown dancer as scored (their sliders are visible), then finish
     ensureScore(state.teamOrder[state.teamIndex]).scoredAt = new Date();
     finishTeam(true);
-  }, 'End Battle');
+  }, 'End match now');
+}
+function completeTeamMatchup(){
+  const activeId=state.teamOrder[state.teamIndex];
+  if(!activeId) return;
+  ensureScore(activeId).scoredAt = new Date();
+  finishTeam(false);
 }
 function nextTeamDancer(){
   ensureScore(state.teamOrder[state.teamIndex]).scoredAt = new Date();
@@ -1204,8 +1261,12 @@ function prevTeamDancer(){
   scheduleSaveProgress();
   renderJudgeTeam();
 }
-function finishTeam(early){
-  state.finishedAt = new Date();
+function recordCurrentTeamMatch(early, allowPartial){
+  if(!state.tournament) state.tournament=createTournament();
+  const {a,b}=state.teamMatch || {};
+  if(!validTeamIndex(a) || !validTeamIndex(b) || a===b) return false;
+  const key=pairKey(a,b);
+  if(state.tournament.completedPairs.includes(key)) return false;
   // Only dancers who were actually scored count. scoredAt is set as each dancer is
   // submitted (or when ending early on the current dancer), so it marks "was judged".
   const scored = state.teamOrder.map(dById).filter(d=> d && state.scores[d.id] && state.scores[d.id].scoredAt);
@@ -1222,21 +1283,41 @@ function finishTeam(early){
     state.teamAverages[k] = (v.sum/v.count).toFixed(1);
     state.teamScoredCount[k] = v.count;
   });
-  const {a,b} = state.teamMatch;
-  if(!state.teamAverages[a] || !state.teamAverages[b]){
-    appConfirm('Score at least one dancer from each team before completing a tournament matchup.', ()=>renderJudgeTeam(), 'Back to Scoring');
-    return;
+  if(state.teamAverages[a] && state.teamAverages[b]){
+    if(!updateTournamentStats(a,b,state.teamAverages)) return false;
+    state.tournament.matches.push({
+      key:key, a:a, b:b, averages:Object.assign({}, state.teamAverages),
+      scoredCount:Object.assign({}, state.teamScoredCount), completedAt:new Date().toISOString(), early:!!early
+    });
+    state.tournament.completedPairs.push(key);
+  } else if(allowPartial && Object.keys(state.teamAverages).length){
+    // A tournament may be ended mid-match. Keep those judged scores, but don't
+    // mark the pair as completed or assign a win without both team averages.
+    const partial=state.tournament.incompleteMatches || (state.tournament.incompleteMatches=[]);
+    Object.entries(state.teamAverages).forEach(([team,average])=>{
+      const stat=state.tournament.teamStats[team];
+      const score=Number(average);
+      if(stat && Number.isFinite(score)){
+        stat.matchCount++;
+        stat.totalAverage+=score;
+        stat.cumulativeAverage=stat.totalAverage/stat.matchCount;
+      }
+    });
+    partial.push({key:key,a:a,b:b,averages:Object.assign({},state.teamAverages),scoredCount:Object.assign({},state.teamScoredCount),completedAt:new Date().toISOString(),early:true,incomplete:true});
+  } else {
+    return false;
   }
-  const key = pairKey(a,b);
-  if(!updateTournamentStats(a,b,state.teamAverages)) return;
-  state.tournament.matches.push({
-    key:key, a:a, b:b, averages:Object.assign({}, state.teamAverages),
-    scoredCount:Object.assign({}, state.teamScoredCount), completedAt:new Date().toISOString(), early:!!early
-  });
-  state.tournament.completedPairs.push(key);
   state.teamOrder = [];
   state.teamIndex = 0;
   state.scores = {};
+  return true;
+}
+function finishTeam(early){
+  if(!recordCurrentTeamMatch(early, false)){
+    appConfirm('Score at least one dancer from each team before completing a tournament matchup.', ()=>renderJudgeTeam(), 'Back to Scoring');
+    return false;
+  }
+  const {a,b}=state.teamMatch;
   if(tournamentIsComplete()){
     finishTeamTournament();
   } else {
@@ -1244,6 +1325,7 @@ function finishTeam(early){
     scheduleSaveProgress();
     renderTournamentMatchComplete(a,b);
   }
+  return true;
 }
 function renderTournamentMatchComplete(a,b){
   const progress=tournamentProgress();
@@ -1279,6 +1361,31 @@ function finishTeamTournament(){
   standings.forEach(s=>state.teamScoredCount[s.team]=s.matchCount);
   state.results=standings.map((s,i)=>({teamIndex:s.team, teamName:teamName(s.team), place:tie?1:i+1, score:s.wins+' win'+(s.wins===1?'':'s'), note:s.draws+' draw'+(s.draws===1?'':'s')+' · avg '+s.average.toFixed(1), time:null, comment:''}));
   renderResults('Team Battle Tournament Results');
+  showScreen('results');
+}
+function finishPartialTeamTournament(){
+  state.finishedAt = new Date();
+  const t=state.tournament;
+  const completed=t.matches.length;
+  const partial=(t.incompleteMatches||[]).length;
+  const standings=Array.from({length:state.teamCount}, (_,i)=>Object.assign({team:i}, t.teamStats[i]));
+  standings.sort((x,y)=>y.wins-x.wins || y.cumulativeAverage-x.cumulativeAverage);
+  state.champion=null;
+  state.teamAverages={};
+  state.teamScoredCount={};
+  standings.forEach(s=>{
+    if(s.matchCount){
+      state.teamAverages[s.team]=s.cumulativeAverage.toFixed(1);
+      state.teamScoredCount[s.team]=s.matchCount;
+    }
+  });
+  state.results=standings.map((s,i)=>({
+    teamIndex:s.team, teamName:teamName(s.team), place:i+1,
+    score:s.wins+' win'+(s.wins===1?'':'s'),
+    note:`Ended early · ${completed} complete${partial ? ` · ${partial} partial` : ''} · avg ${s.matchCount?s.cumulativeAverage.toFixed(1):'—'}`,
+    time:null, comment:''
+  }));
+  renderResults('Team Battle Tournament (Ended Early)');
   showScreen('results');
 }
 
@@ -1413,16 +1520,16 @@ function renderResults(title){
         return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:14px;"><span>${esc(teamName(parseInt(t)))} <span style="color:var(--text-dim);font-size:11.5px;">· ${n} scored</span></span><span class="mono" style="font-weight:700;">${avg}</span></div>`;
       }).join('') + `</div>`;
   }
+  const rows = state.results.map(r=>{
     if(Number.isInteger(r.teamIndex)){
       const noteLine = [r.note, r.time ? 'at '+fmtTime(r.time) : ''].filter(Boolean).join(' · ');
-      return `<div class="result-row">
+        return `<div class="result-row">
         <div class="result-rank">${r.place}</div>
-        <div class="badge badge-sm" style="background:${safeHex(PALETTE[r.teamIndex%PALETTE.length].hex)};">T</div>
+        ${teamBadgeHTML(r.teamIndex,'sm')}
         <div class="result-info"><div class="result-name">${esc(r.teamName)}</div><div class="result-sub">${esc(noteLine)}</div></div>
         <div class="result-score">${esc(r.score)}</div>
       </div>`;
     }
-  const rows = state.results.map(r=>{
     const c = r.d.color.hex;
     const noteLine = [r.note, r.time ? 'at '+fmtTime(r.time) : ''].filter(Boolean).join(' · ');
     return `<div class="result-row">
@@ -1463,6 +1570,7 @@ async function persistBattleRecord(title){
       rows: state.results.map(r=>({
         number: r.d ? r.d.number : null,
         teamName: r.teamName || null,
+        teamBadge: Number.isInteger(r.teamIndex) ? teamBadgeLabel(r.teamIndex) : null,
         colorHex: r.d ? r.d.color.hex : safeHex(PALETTE[r.teamIndex%PALETTE.length].hex),
         tag: r.d ? (r.d.tag || '') : '',
         note: r.note || '',
@@ -1543,7 +1651,7 @@ function exportReport(title){
   let rows = state.results.map(r=>`
     <tr>
       <td>${r.place}</td>
-      <td>${r.teamName ? `<span class="pr-badge" style="background:${safeHex(PALETTE[r.teamIndex%PALETTE.length].hex)}">T</span>${esc(r.teamName)}` : `<span class="pr-badge" style="background:${safeHex(r.d.color.hex)}">${r.d.number}</span>${esc(r.d.tag)}`}</td>
+      <td>${r.teamName ? `<span class="pr-badge" style="background:${safeHex(PALETTE[r.teamIndex%PALETTE.length].hex)}">${esc(teamBadgeLabel(r.teamIndex))}</span>${esc(r.teamName)}` : `<span class="pr-badge" style="background:${safeHex(r.d.color.hex)}">${r.d.number}</span>${esc(r.d.tag)}`}</td>
       <td>${esc(r.note)}${r.comment ? ` <em>"${esc(r.comment)}"</em>` : ''}</td>
       <td>${r.time ? fmtTime(r.time) : ''}</td>
       <td style="text-align:right;font-weight:700;">${r.score}</td>
@@ -1664,7 +1772,7 @@ function exportDayReport(){
     const rows = r.rows.map(row=>`
       <tr>
         <td>${row.place}</td>
-        <td>${row.teamName ? `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">T</span>${esc(row.teamName)}` : `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${row.number}</span>${esc(row.tag)}`}</td>
+        <td>${row.teamName ? `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${esc(row.teamBadge || '')}</span>${esc(row.teamName)}` : `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${row.number}</span>${esc(row.tag)}`}</td>
         <td>${esc(row.note)}${row.comment ? ` <em>"${esc(row.comment)}"</em>` : ''}</td>
         <td>${row.time ? fmtTime(row.time) : ''}</td>
         <td style="text-align:right;font-weight:700;">${row.score}</td>
