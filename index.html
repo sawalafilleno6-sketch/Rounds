@@ -767,9 +767,12 @@ function judgingInProgress(){
 function goHome(){
   if(judgingInProgress()){
     if(state.format==='team' && state.tournament){
-      appConfirm('Leave this tournament? It will be saved so you can resume it later.', ()=>{
-        saveProgress();
+      appConfirm('Leave this tournament? It will be saved so you can resume it later.', async ()=>{
+        // Persist while the judge screen is still active, then immediately refresh
+        // the home-state affordance instead of requiring a browser reload.
+        await saveProgress();
         state = freshState();
+        await checkForUnfinishedBattle();
         showScreen('home');
       }, 'Leave Tournament');
       return;
