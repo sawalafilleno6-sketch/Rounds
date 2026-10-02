@@ -606,7 +606,8 @@ async function checkForUnfinishedBattle(){
   if(!saved || !saved.format) return;
   const home = document.getElementById('screen-home');
   if(!home || document.getElementById('resume-banner')) return;
-  const label = {'1v1':'1v1','team':'Team Battle','smoke':'7-to-Smoke'}[saved.format] || saved.format;
+  const label = {'1v1':'1v1','team':'Team Battle','smoke':'7-to-Smoke'}[saved.format];
+  if(!label) return;
   const banner = document.createElement('div');
   banner.id = 'resume-banner';
   banner.className = 'resume-banner';
@@ -626,19 +627,65 @@ function boundedInt(value,min,max,fallback){
 }
 function resumeBattle(saved){
   if(!saved || typeof saved!=='object') return;
+  if(!['1v1','team','smoke'].includes(saved.format)) return;
   // Progress is user-controlled local data, so bound its sizes before it reaches the UI.
   const safeSaved=Object.assign({}, saved, {
     teamCount:boundedInt(saved.teamCount,2,6,2),
     perTeam:boundedInt(saved.perTeam,1,8,3),
     dancerCount:boundedInt(saved.dancerCount,2,20,2),
-    teamNames:Array.isArray(saved.teamNames) ? saved.teamNames.slice(0,6).map(n=>String(n).slice(0,60)) : []
+    teamNames:Array.isArray(saved.teamNames) ? saved.teamNames.slice(0,6).map((n,i)=>typeof n==='string'?n.slice(0,60):defaultTeamName(i)) : []
   });
+  const dancerCount=safeSaved.format==='team' ? safeSaved.teamCount*safeSaved.perTeam : safeSaved.format==='1v1' ? 2 : safeSaved.dancerCount;
+  const savedTags=Object.create(null);
+  if(Array.isArray(saved.dancers)) saved.dancers.slice(0,48).forEach(d=>{
+    if(d && typeof d.id==='string' && /^d[1-9]\d{0,2}$/.test(d.id)) savedTags[d.id]=String(d.tag||'').slice(0,120);
+  });
+  const teamOf=safeSaved.format==='team' ? i=>Math.floor((i-1)/safeSaved.perTeam) : null;
+  safeSaved.dancers=makeDancers(dancerCount,teamOf);
+  safeSaved.dancers.forEach(d=>{ if(savedTags[d.id]!==undefined) d.tag=savedTags[d.id]; });
+  const allowedIds=new Set(safeSaved.dancers.map(d=>d.id));
+  safeSaved.teamOrder=Array.isArray(saved.teamOrder) ? [...new Set(saved.teamOrder.slice(0,dancerCount*2).filter(id=>typeof id==='string'&&allowedIds.has(id)))].slice(0,dancerCount) : [];
+  safeSaved.teamIndex=boundedInt(saved.teamIndex,0,Math.max(0,safeSaved.teamOrder.length-1),0);
+  safeSaved.scores=Object.create(null);
+  if(saved.scores && typeof saved.scores==='object') safeSaved.dancers.forEach(d=>{
+    const id=d.id, score=saved.scores[id];
+    if(!allowedIds.has(id) || !score || !Array.isArray(score.c) || score.c.length!==CRITERIA.length) return;
+    const values=score.c.map(v=>boundedInt(v,1,10,null));
+    if(values.some(v=>v===null)) return;
+    const scoredAt=score.scoredAt && Number.isFinite(new Date(score.scoredAt).getTime()) ? new Date(score.scoredAt).toISOString() : null;
+    safeSaved.scores[id]={c:values,total:values.reduce((sum,v)=>sum+v,0),comment:String(score.comment||'').slice(0,500),...(scoredAt?{scoredAt}: {})};
+  });
+  if(safeSaved.format==='1v1'){
+    const match=saved.match||{};
+    safeSaved.match=allowedIds.has(match.aId)&&allowedIds.has(match.bId)&&match.aId!==match.bId
+      ? {aId:match.aId,bId:match.bId} : {aId:'d1',bId:'d2'};
+  } else if(safeSaved.format==='smoke'){
+    const smoke=saved.smoke||{};
+    const king=allowedIds.has(smoke.king)?smoke.king:safeSaved.dancers[0].id;
+    const queue=Array.isArray(smoke.queue) ? [...new Set(smoke.queue.slice(0,dancerCount).filter(id=>typeof id==='string'&&allowedIds.has(id)&&id!==king))] : [];
+    const challenger=allowedIds.has(smoke.challenger)&&smoke.challenger!==king ? smoke.challenger : queue.shift()||safeSaved.dancers.find(d=>d.id!==king).id;
+    const points=Object.create(null), lastActive=Object.create(null), lastComment=Object.create(null);
+    safeSaved.dancers.forEach(d=>{
+      points[d.id]=boundedInt(smoke.points&&smoke.points[d.id],0,7,0);
+      const active=smoke.lastActive&&smoke.lastActive[d.id];
+      if(active&&Number.isFinite(new Date(active).getTime())) lastActive[d.id]=new Date(active).toISOString();
+      lastComment[d.id]=String(smoke.lastComment&&smoke.lastComment[d.id]||'').slice(0,500);
+    });
+    const history=Array.isArray(smoke.history) ? smoke.history.slice(-1).filter(s=>s&&allowedIds.has(s.king)&&allowedIds.has(s.challenger)&&s.king!==s.challenger).map(s=>({
+      king:s.king,challenger:s.challenger,
+      queue:Array.isArray(s.queue)?s.queue.filter(id=>typeof id==='string'&&allowedIds.has(id)&&id!==s.king&&id!==s.challenger):[],
+      points:Object.fromEntries(safeSaved.dancers.map(d=>[d.id,boundedInt(s.points&&s.points[d.id],0,7,0)])),
+      round:boundedInt(s.round,1,1000000,1)
+    })) : [];
+    safeSaved.smoke={king:king,challenger:challenger,queue:queue.filter(id=>id!==challenger),points:points,lastActive:lastActive,lastComment:lastComment,round:boundedInt(smoke.round,1,1000000,1),history:history};
+  }
   state = Object.assign(freshState(), safeSaved);
   showScreen('judge');
   if(state.format==='1v1') renderJudge1v1();
   else if(state.format==='team'){
     // Older saved battles predate team-pair selection; keep them resumable.
-    state.teamMatch = state.teamMatch || {a:0, b:Math.min(1, state.teamCount-1)};
+    const savedMatch=state.teamMatch||{};
+    state.teamMatch = {a:validTeamIndex(savedMatch.a)?savedMatch.a:0,b:validTeamIndex(savedMatch.b)&&savedMatch.b!==0?savedMatch.b:Math.min(1,state.teamCount-1)};
     applyTeamJudgeColors();
     state.tournament = normalizeTournament(state.tournament);
     state.teamOrder.length ? renderJudgeTeam() : renderTeamMatchup();
@@ -697,10 +744,27 @@ function makeDancers(n, teamIndexFn){
 }
 
 function badgeHTML(d, size){
-  const c = d.color.hex;
+  const c = teamBattleColor(d);
   return `<div class="badge badge-${size}" style="background:${safeHex(c)};filter:drop-shadow(0 4px 10px ${c}66);">
-    <span class="num">${d.number}</span>
+    <span class="num">${state.format==='team' ? teamMemberNumber(d) : d.number}</span>
   </div>`;
+}
+
+function teamMemberNumber(d){
+  const perTeam=boundedInt(state.perTeam,1,8,1);
+  return d.teamIndex===null || d.teamIndex===undefined ? d.number : ((d.number-1)%perTeam)+1;
+}
+function teamDancerLabel(d){
+  return state.format==='team' && d.teamIndex!==null && d.teamIndex!==undefined
+    ? `Dancer #${teamMemberNumber(d)} ${teamName(d.teamIndex)}`
+    : `Dancer #${d.number}`;
+}
+function teamBattleColor(d){
+  if(state.format==='team' && state.teamMatch){
+    if(d.teamIndex===state.teamMatch.a) return PALETTE[0].hex;
+    if(d.teamIndex===state.teamMatch.b) return PALETTE[1].hex;
+  }
+  return d.color.hex;
 }
 
 function appConfirm(message, onYes, yesLabel){
@@ -775,8 +839,8 @@ function goHome(){
         // the home-state affordance instead of requiring a browser reload.
         await saveProgress();
         state = freshState();
-        await checkForUnfinishedBattle();
         showScreen('home');
+        await checkForUnfinishedBattle();
       }, 'Leave Tournament');
       return;
     }
@@ -941,7 +1005,7 @@ function ensureScore(id){
   return state.scores[id];
 }
 function teamDancerToolsHTML(d){
-  return `<div class="dancer-tools" aria-label="Customize Dancer #${d.number}">
+  return `<div class="dancer-tools" aria-label="Customize ${esc(teamDancerLabel(d))}">
     <input class="tag-input judge-tag-input" id="tag-${d.id}" placeholder="optional note" value="${esc(d.tag)}" oninput="setTag('${d.id}', this.value)">
     <div class="quick-tags dancer-quick-tags">
       ${QUICK_TAGS.map(t=>`<button type="button" class="qtag" aria-label="Add ${esc(t)}" onclick="quickTag('${d.id}','${t.split(' ')[0]}')">${t.split(' ')[0]}</button>`).join('')}
@@ -950,7 +1014,7 @@ function teamDancerToolsHTML(d){
 }
 function scoreCardHTML(d, roleLabel){
   const s = ensureScore(d.id);
-  const c = safeHex(d.color.hex);
+  const c = safeHex(teamBattleColor(d));
   let rows = CRITERIA.map((label,i)=>{
     let cells = '';
     for(let v=1; v<=10; v++){
@@ -965,7 +1029,7 @@ function scoreCardHTML(d, roleLabel){
     <div class="score-card">
       <div class="score-card-head">
         ${badgeHTML(d,'sm')}
-        <div class="dancer-head-main"><div class="score-card-name">Dancer #${d.number}${roleLabel ? ` <span class="role-pill${roleLabel.includes('King')?' king':''}">${roleLabel}</span>` : ''}</div>
+        <div class="dancer-head-main"><div class="score-card-name">${esc(teamDancerLabel(d))}${roleLabel ? ` <span class="role-pill${roleLabel.includes('King')?' king':''}">${esc(roleLabel)}</span>` : ''}</div>
         <div class="score-card-sub">${esc(d.tag) || 'no note'}${d.teamIndex!==null&&d.teamIndex!==undefined ? ' · '+esc(teamName(d.teamIndex)):''}</div></div>
         ${state.format==='team' ? teamDancerToolsHTML(d) : ''}
       </div>
@@ -1123,9 +1187,9 @@ function updateTournamentStats(a,b,averages,tournament){
 }
 function normalizeTournament(savedTournament){
   const clean=createTournament();
-  if(!savedTournament || !Array.isArray(savedTournament.matches)) return clean;
   const seen=new Set();
-  savedTournament.matches.forEach(m=>{
+  const matches=savedTournament && Array.isArray(savedTournament.matches) ? savedTournament.matches : [];
+  matches.forEach(m=>{
     if(!m || !validTeamIndex(m.a) || !validTeamIndex(m.b) || m.a===m.b) return;
     const key=pairKey(m.a,m.b);
     if(seen.has(key) || !clean.pairs.includes(key)) return;
@@ -1133,6 +1197,27 @@ function normalizeTournament(savedTournament){
     if(!updateTournamentStats(m.a, m.b, averages, clean)) return;
     clean.matches.push({key:key,a:m.a,b:m.b,averages:{[m.a]:Number(averages[m.a]).toFixed(1),[m.b]:Number(averages[m.b]).toFixed(1)},scoredCount:m.scoredCount||{},completedAt:typeof m.completedAt==='string'?m.completedAt:'',early:!!m.early});
     clean.completedPairs.push(key); seen.add(key);
+  });
+  const partials=savedTournament && Array.isArray(savedTournament.incompleteMatches) ? savedTournament.incompleteMatches : [];
+  clean.incompleteMatches=[];
+  partials.forEach(m=>{
+    if(!m || !validTeamIndex(m.a) || !validTeamIndex(m.b) || m.a===m.b || !clean.pairs.includes(pairKey(m.a,m.b))) return;
+    const averages=Object.create(null);
+    [m.a,m.b].forEach(team=>{
+      const score=validAverage(m.averages && m.averages[team]);
+      if(score===null) return;
+      averages[team]=score.toFixed(1);
+      const stat=clean.teamStats[team];
+      stat.matchCount++;
+      stat.totalAverage+=score;
+      stat.cumulativeAverage=stat.totalAverage/stat.matchCount;
+    });
+    if(!Object.keys(averages).length) return;
+    const scoredCount=Object.create(null);
+    Object.keys(averages).forEach(team=>{
+      scoredCount[team]=boundedInt(m.scoredCount && m.scoredCount[team],0,8,0);
+    });
+    clean.incompleteMatches.push({key:pairKey(m.a,m.b),a:m.a,b:m.b,averages:averages,scoredCount:scoredCount,completedAt:typeof m.completedAt==='string'?m.completedAt:'',early:true,incomplete:true});
   });
   return clean;
 }
@@ -1240,7 +1325,7 @@ function renderJudgeTeam(){
   document.getElementById('judge-body').innerHTML = `
     <div class="round-tag">${esc(teamName(state.teamMatch.a))} VS ${esc(teamName(state.teamMatch.b))} · ${state.teamIndex+1} / ${state.teamOrder.length}</div>
     <div style="display:flex;justify-content:center;margin-bottom:6px;">${badgeHTML(d,'lg')}</div>
-    <div style="text-align:center;color:var(--text-dim);font-size:12.5px;margin-bottom:16px;">${esc(teamName(d.teamIndex))} ${d.tag?'· '+esc(d.tag):''}</div>
+    <div style="text-align:center;color:var(--text-dim);font-size:12.5px;margin-bottom:16px;">${esc(teamDancerLabel(d))}${d.tag?' · '+esc(d.tag):''}</div>
     ${scoreCardHTML(d)}
     <div class="judge-nav-row">
       <button class="ghost-btn nav-back" onclick="prevTeamDancer()" ${state.teamIndex===0?'disabled':''}>‹ Back</button>
@@ -1573,6 +1658,12 @@ function renderResults(title){
 }
 async function persistBattleRecord(title){
   try{
+    const teamMatches=state.format==='team'&&state.tournament
+      ? state.tournament.matches.concat(state.tournament.incompleteMatches||[]).map(m=>({
+          teams:[teamName(m.a),teamName(m.b)],
+          averages:[m.averages&&m.averages[m.a]||null,m.averages&&m.averages[m.b]||null],
+          partial:!!m.incomplete
+        })) : [];
     const record = {
       uid: 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
       format: state.format,
@@ -1590,7 +1681,8 @@ async function persistBattleRecord(title){
         place: r.place,
         time: r.time ? new Date(r.time).toISOString() : null,
         comment: r.comment || ''
-      }))
+      })),
+      teamMatches:teamMatches
     };
     await storageSaveRecord(record);
   }catch(e){ console.error('Could not save battle record', e); }
@@ -1599,7 +1691,7 @@ async function persistBattleRecord(title){
 /* Builds a standalone, printable HTML report and downloads it.
    window.print() is blocked in some embedded contexts, so download is the primary path. */
 function buildReportDoc(title, subline, bodyHTML){
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
     body{font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#211A1E;margin:34px;max-width:800px;}
     h1{font-size:22px;margin:0 0 2px;}
     .pr-sub{color:#555;font-size:12px;margin-bottom:18px;}
@@ -1639,8 +1731,8 @@ function buildReportDoc(title, subline, bodyHTML){
   @media print{.print-hint{display:none;}}
   </style></head><body>
     <div class="print-hint">To save as PDF: <button onclick="window.print()">Print / Save as PDF</button> (or use your browser's Print menu)</div>
-    <h1>${title}</h1>
-    <div class="pr-sub">${subline}</div>
+    <h1>${esc(title)}</h1>
+    <div class="pr-sub">${esc(subline)}</div>
     ${bodyHTML}
   </body></html>`;
 }
@@ -1680,6 +1772,9 @@ function exportReport(title){
 
 /* ---------- HISTORY ---------- */
 const FORMAT_LABELS = {'1v1':'1v1','team':'Team Battle','smoke':'7-to-Smoke'};
+function historyFormatLabel(format){
+  return Object.prototype.hasOwnProperty.call(FORMAT_LABELS,format) ? FORMAT_LABELS[format] : 'Battle';
+}
 
 function toDateKey(d){
   const dt = new Date(d);
@@ -1725,7 +1820,7 @@ async function changeHistoryDate(deltaDays){
 function getDayRecords(date){
   const dateKey = toDateKey(date);
   return (dayCache[dateKey]||[])
-    .filter(r => r && r.startedAt)
+    .filter(r => r && r.startedAt && Array.isArray(r.rows) && r.rows.every(row=>row && typeof row==='object'))
     .sort((a,b)=> new Date(a.startedAt) - new Date(b.startedAt));
 }
 function renderHistory(){
@@ -1747,15 +1842,17 @@ function renderHistory(){
   attachHistorySwipe();
 }
 function historyRecordCard(r, idx){
-  const formatLabel = FORMAT_LABELS[r.format] || r.format;
+  const formatLabel = esc(historyFormatLabel(r.format));
   const startTime = r.startedAt ? fmtTime(r.startedAt) : '';
   const rowsHTML = r.rows.map(row=>`
     <div class="history-row">
       <span class="history-swatch" style="background:${safeHex(row.colorHex)}"></span>
-      <span class="history-row-name mono">${row.teamName ? esc(row.teamName) : '#'+row.number+(row.tag?(' · '+esc(row.tag)):'')}</span>
+      <span class="history-row-name mono">${row.teamName ? esc(row.teamName) : '#'+esc(row.number)+(row.tag?(' · '+esc(row.tag)):'')}</span>
       <span class="history-row-note">${esc(row.note)}${row.comment ? ` — "${esc(row.comment)}"` : ''}</span>
-      <span class="history-row-score mono">${row.score}</span>
+      <span class="history-row-score mono">${esc(row.score)}</span>
     </div>`).join('');
+  const matchups=Array.isArray(r.teamMatches) ? r.teamMatches.filter(m=>m&&Array.isArray(m.teams)&&m.teams.length===2&&Array.isArray(m.averages)&&m.averages.length===2) : [];
+  const matchupsHTML=matchups.length ? `<div class="history-matchups"><div class="field-label">Matchup scores</div>${matchups.map(m=>`<div class="history-row"><span class="history-row-name">${esc(m.teams[0])} vs ${esc(m.teams[1])}${m.partial?' · partial':''}</span><span class="history-row-score mono">${esc(m.averages[0]||'—')} vs ${esc(m.averages[1]||'—')}</span></div>`).join('')}</div>` : '';
   return `
     <div class="history-card">
       <div class="history-card-head" onclick="toggleHistoryCard(${idx})">
@@ -1765,6 +1862,7 @@ function historyRecordCard(r, idx){
       </div>
       <div class="history-card-body" id="hist-body-${idx}" style="display:none;">
         ${rowsHTML}
+        ${matchupsHTML}
       </div>
     </div>`;
 }
@@ -1780,21 +1878,23 @@ function exportDayReport(){
   if(!dayRecords.length) return;
   const dayLabel = formatDateHeader(state.historyDate);
   const sections = dayRecords.map(r=>{
-    const formatLabel = FORMAT_LABELS[r.format] || r.format;
+    const formatLabel = esc(historyFormatLabel(r.format));
     const rows = r.rows.map(row=>`
       <tr>
-        <td>${row.place}</td>
-        <td>${row.teamName ? `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${esc(row.teamBadge || '')}</span>${esc(row.teamName)}` : `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${row.number}</span>${esc(row.tag)}`}</td>
+        <td>${esc(row.place)}</td>
+        <td>${row.teamName ? `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${esc(row.teamBadge || '')}</span>${esc(row.teamName)}` : `<span class="pr-badge" style="background:${safeHex(row.colorHex)}">${esc(row.number)}</span>${esc(row.tag)}`}</td>
         <td>${esc(row.note)}${row.comment ? ` <em>"${esc(row.comment)}"</em>` : ''}</td>
         <td>${row.time ? fmtTime(row.time) : ''}</td>
-        <td style="text-align:right;font-weight:700;">${row.score}</td>
+        <td style="text-align:right;font-weight:700;">${esc(row.score)}</td>
       </tr>`).join('');
+    const matchups=Array.isArray(r.teamMatches) ? r.teamMatches.filter(m=>m&&Array.isArray(m.teams)&&m.teams.length===2&&Array.isArray(m.averages)&&m.averages.length===2) : [];
+    const matchupRows=matchups.map(m=>`<tr><td>${esc(m.teams[0])} vs ${esc(m.teams[1])}${m.partial?' · partial':''}</td><td>${esc(m.averages[0]||'—')}</td><td>${esc(m.averages[1]||'—')}</td></tr>`).join('');
     return `
       <h2 class="pr-section-title">${formatLabel} · ${r.startedAt ? fmtTime(r.startedAt) : ''}</h2>
       <table>
         <thead><tr><th>Place</th><th>Team / dancer</th><th>Note</th><th>Time</th><th style="text-align:right;">Score</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>${matchupRows?`<h3 class="pr-section-title">Matchup scores</h3><table><thead><tr><th>Matchup</th><th>Average A</th><th>Average B</th></tr></thead><tbody>${matchupRows}</tbody></table>`:''}`;
   }).join('');
   const subline = `${dayRecords.length} battle${dayRecords.length===1?'':'s'} judged this day`;
   const doc = buildReportDoc(`Rounds — ${dayLabel}`, subline, sections);
